@@ -100,6 +100,92 @@ recolectarVariables (Valor _) = []
 recolectarVariables (Var nombre) = [nombre]
 recolectarVariables (Aplicar _ exp1 exp2) = recolectarVariables exp1 ++ recolectarVariables exp2
 
+-- Entorno de variables
+type Env = [(String, Double)]
+
+-- Buscar Variable en el Entorno
+-- buscarVar recibe el nombre de una variable y un entorno, y devuelve el valor asociado o un error.
+-- Se usa recursion explicita sobre la lista: si la lista esta vacia, la variable no existe (error).
+-- Si el primer par coincide con el nombre buscado, se retorna su valor con Right.
+-- Si no coincide, se sigue buscando en el resto de la lista.
+buscarVar :: String -> Env -> Either EvalError Double
+buscarVar nombre [] = Left (VariableNoDefinida nombre)
+buscarVar nombre ((var, val):resto)
+    | nombre == var = Right val
+    | otherwise = buscarVar nombre resto
+
+-- Instance Show Para Expr
+-- Permite convertir una expresion a texto de forma legible para el usuario.
+-- Usar instance Show es la forma idiomatica en Haskell de definir representaciones textuales de tipos.
+-- Cada caso del tipo algebraico Expr tiene su propia representacion: valores se muestran directamente,
+-- variables con su nombre, y operaciones con parentesis para mayor claridad.
+
+instance Show a => Show (Expr a) where
+    show (Valor n) = show n
+    show (Var nombre) = nombre
+    show (Aplicar op e1 e2) = "(" ++ show e1 ++ " " ++ showOp op ++ " " ++ show e2 ++ ")"
+
+-- Funcion auxiliar que muestra el simbolo del operador
+showOp :: TipoAlgebraico -> String
+showOp Suma = "+"
+showOp Resta = "-"
+showOp Multiplicacion = "*"
+showOp Division = "/"
+
+-- Evaluacion Con Entorno
+-- Recibe un entorno y una expresion, y devuelve el resultado o un error.
+-- Funciona de forma recursiva siguiendo la estructura del arbol de expresiones:
+-- - Valor: retorna el numero directamente
+-- - Var: busca la variable en el entorno usando buscarVar
+-- - Aplicar: evalua ambas subexpresiones y, si ambas son exitosas, aplica el operador
+-- El uso de Either permite propagar errores.
+
+evaluar :: Env -> Expr Double -> Either EvalError Double
+evaluar _   (Valor n) = Right n
+evaluar env (Var nombre) = buscarVar nombre env
+evaluar env (Aplicar op e1 e2) =
+    case evaluar env e1 of
+        Left err     -> Left err
+        Right valor1 ->
+            case evaluar env e2 of
+                Left err     -> Left err
+                Right valor2 -> aplicarTipo op valor1 valor2
+
+-- Evaluar Multiples Expresiones con Fold
+-- evaluarTodas aplica evaluar a una lista de expresiones y retorna una lista de resultados.
+-- foldr recorre la lista de derecha a izquierda, acumulando resultados.
+-- Cada elemento se evalua independientemente, por lo que un error en una expresion
+-- no afecta la evaluacion de las demas, cada resultado es un Either separado.
+
+evaluarTodas :: Env -> [Expr Double] -> [Either EvalError Double]
+evaluarTodas env = foldr (\ expr acc -> evaluar env expr : acc) []
+
+-- Profundidad Del Abol De Expresiones
+-- profundidad es una funcion pura y recursiva que calcula la altura del arbol de expresiones.
+-- Caso base Valor y Var: son hojas del arbol, profundidad 0.
+-- Caso recursivo Aplicar: la profundidad es 1 mas el maximo entre las profundidades de ambos subarboles.
+
+profundidad :: Expr a -> Int
+profundidad (Valor _) = 0
+profundidad (Var _) = 0
+profundidad (Aplicar _ e1 e2) = 1 + max (profundidad e1) (profundidad e2)
+
+-- Procesar Resultado Con Composicion De Funciones
+-- procesarResultado convierte un Either EvalError Double en un mensaje legible para el usuario.
+-- Se implementa usando composicion de funciones con (.) para encadenar:
+-- formatear: convierte el Either a String segun si fue exito o error
+-- agregarEtiqueta: agrega una pequeña descripcion al mensaje
+
+
+formatear :: Either EvalError Double -> String
+formatear (Left err)  = "Error: " ++ show err
+formatear (Right val) = "Resultado: " ++ show val
+
+agregarEtiqueta :: String -> String
+agregarEtiqueta msg = "[Evaluacion] " ++ msg
+
+procesarResultado :: Either EvalError Double -> String
+procesarResultado = agregarEtiqueta . formatear
 
 -- Interaccion con el usuario
 -- Separa la logica y el IO. 
